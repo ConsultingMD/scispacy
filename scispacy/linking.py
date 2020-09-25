@@ -111,9 +111,6 @@ class EntityLinker:
                 if score > self.threshold:
                     predicted.append((cand.concept_id, score, self.name))
             sorted_predicted = sorted(predicted, reverse=True, key=lambda x: x[1])
-            # If any of the values are 1, then only keep the perfect matches.
-            if sorted_predicted and sorted_predicted[0][1] == 1:
-                sorted_predicted = [_ for _ in sorted_predicted if _[1] == 1]
             setattr(mention._, f'{self.name}_ents', sorted_predicted[: self.max_entities_per_mention])
             mention._.kb_ents = (mention._.kb_ents or []) + sorted_predicted[: self.max_entities_per_mention]
 

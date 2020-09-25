@@ -99,6 +99,7 @@ def construct_umls_tree_from_tsv(filepath: str) -> UmlsSemanticTypeTree:
     node_stack: Deque[SemanticTypeNode] = deque()
     for line in open(cached_path(filepath), "r"):
         name, type_id, level = line.split("\t")
+
         name = name.strip()
         int_level = int(level.strip())
         node = SemanticTypeNode(type_id, name, [], int_level)

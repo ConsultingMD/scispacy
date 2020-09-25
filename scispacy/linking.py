@@ -8,33 +8,23 @@ class EntityLinker:
     """
     A spacy pipeline component which identifies entities in text which appear
     in a knowledge base.
-
     Currently, there are two defaults: the Unified Medical Language System (UMLS) and
     the Medical Subject Headings (MESH) dictionary.
-
     To use these configured default KBs, pass the `name` parameter, either 'umls' or 'mesh'.
-
     Currently this implementation just compares string similarity, returning
     entities above a given threshold.
-
     This class sets the `._.kb_ents` attribute on spacy Spans, which consists of a
     List[Tuple[str, float]] corresponding to the KB concept_id and the associated score
     for a list of `max_entities_per_mention` number of entities.
-
     You can look up more information for a given id using the kb attribute of this class:
-
     print(linker.kb.cui_to_entity[concept_id])
-
     A Note on Definitions:
     Only 187767 entities, or 6.74% of the UMLS KB have definitions. However,
     the MedMentions dataset links to entities which have definitions 82.9% of the time. So by
     default, we only link to entities which have definitions (typically they are more salient / cleaner),
     but this might not suit your use case. YMMV.
-
-
     Parameters
     ----------
-
     candidate_generator : `CandidateGenerator`, optional, (default = None)
         A CandidateGenerator to generate entity candidates for mentions.
         If no candidate generator is passed, the default pretrained one is used.
@@ -72,7 +62,7 @@ class EntityLinker:
         name: str = None,
     ):
         # TODO(Mark): Remove in scispacy v1.0.
-        Span.set_extension("umls_ents", default=[], force=True)
+        Span.set_extension(f"{name}_ents", default=[], force=True)
         Span.set_extension("kb_ents", default=[], force=True)
 
         self.candidate_generator = candidate_generator or CandidateGenerator(name=name)
@@ -83,25 +73,29 @@ class EntityLinker:
         self.kb = self.candidate_generator.kb
         self.filter_for_definitions = filter_for_definitions
         self.max_entities_per_mention = max_entities_per_mention
+        self.name = name
 
         # TODO(Mark): Remove in scispacy v1.0. This is for backward compatability only.
         self.umls = self.kb
 
     def __call__(self, doc: Doc) -> Doc:
-        mentions = []
+        mentions, mention_strings = [], []
         if self.resolve_abbreviations and Doc.has_extension("abbreviations"):
-
             for ent in doc.ents:
                 # TODO: This is possibly sub-optimal - we might
                 # prefer to look up both the long and short forms.
+                mentions.append(ent)
+
                 if ent._.long_form is not None:
-                    mentions.append(ent._.long_form)
+                    mentions.append(ent)
+                    mention_strings.append(ent._.long_form)
                 else:
                     mentions.append(ent)
+                    mention_strings.append(ent.text)
         else:
             mentions = doc.ents
+            mention_strings = [x.text for x in mentions]
 
-        mention_strings = [x.text for x in mentions]
         batch_candidates = self.candidate_generator(mention_strings, self.k)
 
         for mention, candidates in zip(doc.ents, batch_candidates):
@@ -115,9 +109,12 @@ class EntityLinker:
                 ):
                     continue
                 if score > self.threshold:
-                    predicted.append((cand.concept_id, score))
+                    predicted.append((cand.concept_id, score, self.name))
             sorted_predicted = sorted(predicted, reverse=True, key=lambda x: x[1])
-            mention._.umls_ents = sorted_predicted[: self.max_entities_per_mention]
-            mention._.kb_ents = sorted_predicted[: self.max_entities_per_mention]
+            # If any of the values are 1, then only keep the perfect matches.
+            if sorted_predicted and sorted_predicted[0][1] == 1:
+                sorted_predicted = [_ for _ in sorted_predicted if _[1] == 1]
+            setattr(mention._, f'{self.name}_ents', sorted_predicted[: self.max_entities_per_mention])
+            mention._.kb_ents = (mention._.kb_ents or []) + sorted_predicted[: self.max_entities_per_mention]
 
         return doc
